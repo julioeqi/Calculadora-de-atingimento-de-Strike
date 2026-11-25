@@ -7,17 +7,23 @@
 <style>
 body{font-family:Arial,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;color:#1a1a1a;background:#fff}
 h1{font-size:22px}
+h2{font-size:17px;margin-top:32px;border-top:1px solid #ccc;padding-top:20px}
 label{display:block;margin-top:14px;font-weight:bold;font-size:14px}
 select,input{width:100%;padding:10px;font-size:16px;margin-top:4px;box-sizing:border-box}
 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
 .card{background:#f1f3f5;border-radius:8px;padding:12px;text-align:center}
 .card b{display:block;font-size:24px;margin-top:4px}
+.res{background:#f1f3f5;border-radius:8px;padding:12px;margin-top:10px}
+.res b{font-size:24px}
+.res span{display:block;font-size:13px;color:#555;margin-top:4px}
 button{margin-top:18px;padding:12px;font-size:16px;width:100%;cursor:pointer}
 .nota{font-size:13px;color:#555;margin-top:16px;line-height:1.5}
 @media (prefers-color-scheme:dark){
 body{background:#1b1b1b;color:#eee}
+h2{border-top-color:#444}
 select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
-.card{background:#2a2a2a}
+.card,.res{background:#2a2a2a}
+.res span{color:#aaa}
 .nota{color:#aaa}
 }
 </style>
@@ -37,6 +43,8 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 <option value="0" selected>Todo o histórico</option>
 </select>
 
+<h2>Backtest de retorno em 30 dias</h2>
+
 <label>Retorno em 30 dias (%)</label>
 <input id="pct" type="number" step="0.5" value="5">
 
@@ -47,6 +55,16 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 </div>
 
 <button id="baixar">Baixar CSV de conferência</button>
+
+<h2>Contagem de dias por preço de fechamento</h2>
+
+<label>Acima de (R$): dias em que o fechamento ficou acima</label>
+<input id="acima" type="text" inputmode="decimal" placeholder="Ex.: 15,00">
+<div class="res"><b id="cntAcima">-</b><span id="infoAcima">Digite um valor.</span></div>
+
+<label>Abaixo de (R$): dias em que o fechamento ficou abaixo</label>
+<input id="abaixo" type="text" inputmode="decimal" placeholder="Ex.: 10,00">
+<div class="res"><b id="cntAbaixo">-</b><span id="infoAbaixo">Digite um valor.</span></div>
 
 <p class="nota" id="nota"></p>
 
@@ -101,17 +119,64 @@ function num(x) {
   return x.toFixed(2).replace(".", ",");
 }
 
+function lerValor(id) {
+  var t = document.getElementById(id).value.trim().replace(",", ".");
+  if (t === "") return NaN;
+  return parseFloat(t);
+}
+
+function contar(datas, precos, inicio) {
+  var acima = lerValor("acima");
+  var abaixo = lerValor("abaixo");
+  var dias = 0, nAcima = 0, nAbaixo = 0, ultAcima = null, ultAbaixo = null;
+
+  for (var i = 0; i < datas.length; i++) {
+    if (datas[i] < inicio) continue;
+    dias++;
+    if (!isNaN(acima) && precos[i] > acima) { nAcima++; ultAcima = datas[i]; }
+    if (!isNaN(abaixo) && precos[i] < abaixo) { nAbaixo++; ultAbaixo = datas[i]; }
+  }
+
+  var pctDias = function (n) { return dias ? (n / dias * 100).toFixed(1) + "%" : "-"; };
+
+  if (isNaN(acima)) {
+    document.getElementById("cntAcima").textContent = "-";
+    document.getElementById("infoAcima").textContent = "Digite um valor.";
+  } else {
+    document.getElementById("cntAcima").textContent = nAcima + " dias";
+    document.getElementById("infoAcima").textContent =
+      "Fechou acima de R$ " + num(acima) + " em " + nAcima + " de " + dias +
+      " pregões (" + pctDias(nAcima) + ")." +
+      (ultAcima ? " Última vez: " + fmtData(ultAcima) + "." : "");
+  }
+
+  if (isNaN(abaixo)) {
+    document.getElementById("cntAbaixo").textContent = "-";
+    document.getElementById("infoAbaixo").textContent = "Digite um valor.";
+  } else {
+    document.getElementById("cntAbaixo").textContent = nAbaixo + " dias";
+    document.getElementById("infoAbaixo").textContent =
+      "Fechou abaixo de R$ " + num(abaixo) + " em " + nAbaixo + " de " + dias +
+      " pregões (" + pctDias(nAbaixo) + ")." +
+      (ultAbaixo ? " Última vez: " + fmtData(ultAbaixo) + "." : "");
+  }
+}
+
 function calcular() {
   var ticker = document.getElementById("ativo").value;
   var anos = parseInt(document.getElementById("tempo").value, 10);
   var pct = parseFloat(document.getElementById("pct").value);
   var nota = document.getElementById("nota");
-  if (isNaN(pct)) { nota.textContent = "Digite um percentual."; return; }
 
   carregar(ticker).then(function (d) {
     var datas = d.datas, precos = d.precos, n = datas.length;
     var ultima = datas[n - 1];
     var inicio = anos === 0 ? datas[0] : ultima - anos * 365.25 * DIA;
+
+    contar(datas, precos, inicio);
+
+    if (isNaN(pct)) { nota.textContent = "Digite um percentual."; return; }
+
     var total = 0, atingiu = 0, j = 0;
     var linhas = [];
 
@@ -137,9 +202,10 @@ function calcular() {
     document.getElementById("taxa").textContent =
       total ? (atingiu / total * 100).toFixed(1) + "%" : "-";
     nota.textContent = "Dados de " + fmtData(datas[0]) + " até " + fmtData(ultima) +
-      ". Cada janela compara o fechamento do dia com o de " + PRAZO +
-      " dias corridos depois (se não houver pregão, usa o último fechamento anterior). " +
-      "Conta quando o retorno final é maior ou igual a " + pct + "%.";
+      ". Cada janela do backtest compara o fechamento do dia com o de " + PRAZO +
+      " dias corridos depois (se não houver pregão, usa o último fechamento anterior) " +
+      "e conta quando o retorno final é maior ou igual a " + pct + "%. " +
+      "A contagem por preço usa o fechamento de cada pregão do período.";
   }).catch(function () {
     nota.textContent = "Não consegui carregar os dados de " + ticker + ".";
   });
@@ -169,7 +235,9 @@ TICKERS.forEach(function (t) {
 ["ativo", "tempo"].forEach(function (id) {
   document.getElementById(id).addEventListener("change", calcular);
 });
-document.getElementById("pct").addEventListener("input", calcular);
+["pct", "acima", "abaixo"].forEach(function (id) {
+  document.getElementById(id).addEventListener("input", calcular);
+});
 document.getElementById("baixar").addEventListener("click", baixar);
 calcular();
 </script>

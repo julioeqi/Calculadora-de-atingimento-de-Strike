@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora de atingimento de retorno</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;color:#1a1a1a;background:#fff}
+h1{font-size:22px}
+label{display:block;margin-top:14px;font-weight:bold;font-size:14px}
+select,input{width:100%;padding:10px;font-size:16px;margin-top:4px;box-sizing:border-box}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
+.card{background:#f1f3f5;border-radius:8px;padding:12px;text-align:center}
+.card b{display:block;font-size:24px;margin-top:4px}
+.nota{font-size:13px;color:#555;margin-top:16px;line-height:1.5}
+@media (prefers-color-scheme:dark){
+body{background:#1b1b1b;color:#eee}
+select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
+.card{background:#2a2a2a}
+.nota{color:#aaa}
+}
+</style>
+</head>
+<body>
+<h1>Calculadora de atingimento de retorno</h1>
+
+<label>Ativo</label>
+<select id="ativo"></select>
+
+<label>Tempo (período do histórico analisado)</label>
+<select id="tempo">
+<option value="1">Último 1 ano</option>
+<option value="3">Últimos 3 anos</option>
+<option value="5">Últimos 5 anos</option>
+<option value="10">Últimos 10 anos</option>
+<option value="0" selected>Todo o histórico</option>
+</select>
+
+<label>Retorno em 30 dias (%)</label>
+<input id="pct" type="number" step="0.5" value="5">
+
+<div class="cards">
+<div class="card">Janelas analisadas<b id="total">-</b></div>
+<div class="card">Atingiu o retorno<b id="atingiu">-</b></div>
+<div class="card">% das vezes<b id="taxa">-</b></div>
+</div>
+
+<p class="nota" id="nota"></p>
+
+<script>
+var TICKERS = ["ABEV3"];
+var PRAZO = 30;
+var DIA = 86400000;
+var cache = {};
+
+function carregar(ticker) {
+  if (cache[ticker]) return Promise.resolve(cache[ticker]);
+  return fetch("data/" + ticker + ".csv?v=" + Date.now())
+    .then(function (r) {
+      if (!r.ok) throw new Error("Arquivo não encontrado");
+      return r.text();
+    })
+    .then(function (txt) {
+      var linhas = txt.trim().split("\n");
+      var datas = [], precos = [];
+      for (var i = 0; i < linhas.length; i++) {
+        var p = linhas[i].trim().split(",");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(p[0])) continue;
+        var v = parseFloat(p[1]);
+        if (isNaN(v)) continue;
+        datas.push(Date.parse(p[0] + "T00:00:00Z"));
+        precos.push(v);
+      }
+      cache[ticker] = { datas: datas, precos: precos };
+      return cache[ticker];
+    });
+}
+
+function fmtData(ms) {
+  var d = new Date(ms);
+  return String(d.getUTCDate()).padStart(2, "0") + "/" +
+         String(d.getUTCMonth() + 1).padStart(2, "0") + "/" + d.getUTCFullYear();
+}
+
+function calcular() {
+  var ticker = document.getElementById("ativo").value;
+  var anos = parseInt(document.getElementById("tempo").value, 10);
+  var pct = parseFloat(document.getElementById("pct").value);
+  var nota = document.getElementById("nota");
+  if (isNaN(pct)) { nota.textContent = "Digite um percentual."; return; }
+
+  carregar(ticker).then(function (d) {
+    var datas = d.datas, precos = d.precos, n = datas.length;
+    var ultima = datas[n - 1];
+    var inicio = anos === 0 ? datas[0] : ultima - anos * 365.25 * DIA;
+    var total = 0, atingiu = 0, j = 0;
+
+    for (var i = 0; i < n; i++) {
+      if (datas[i] < inicio) continue;
+      var alvo = datas[i] + PRAZO * DIA;
+      if (alvo > ultima) break;
+      if (j < i) j = i;
+      while (j + 1 < n && datas[j + 1] <= alvo) j++;
+      var ret = (precos[j] / precos[i] - 1) * 100;
+      total++;
+      if (ret >= pct) atingiu++;
+    }
+
+    document.getElementById("total").textContent = total;
+    document.getElementById("atingiu").textContent = atingiu;
+    document.getElementById("taxa").textContent =
+      total ? (atingiu / total * 100).toFixed(1) + "%" : "-";
+    nota.textContent = "Dados de " + fmtData(datas[0]) + " até " + fmtData(ultima) +
+      ". Cada janela compara o fechamento do dia com o de " + PRAZO +
+      " dias corridos depois (se não houver pregão, usa o último fechamento anterior). " +
+      "Conta quando o retorno final é maior ou igual a " + pct + "%.";
+  }).catch(function () {
+    nota.textContent = "Não consegui carregar os dados de " + ticker + ".";
+  });
+}
+
+var sel = document.getElementById("ativo");
+TICKERS.forEach(function (t) {
+  var o = document.createElement("option");
+  o.value = t; o.textContent = t;
+  sel.appendChild(o);
+});
+["ativo", "tempo"].forEach(function (id) {
+  document.getElementById(id).addEventListener("change", calcular);
+});
+document.getElementById("pct").addEventListener("input", calcular);
+calcular();
+</script>
+</body>
+</html>

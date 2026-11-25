@@ -12,6 +12,7 @@ select,input{width:100%;padding:10px;font-size:16px;margin-top:4px;box-sizing:bo
 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
 .card{background:#f1f3f5;border-radius:8px;padding:12px;text-align:center}
 .card b{display:block;font-size:24px;margin-top:4px}
+button{margin-top:18px;padding:12px;font-size:16px;width:100%;cursor:pointer}
 .nota{font-size:13px;color:#555;margin-top:16px;line-height:1.5}
 @media (prefers-color-scheme:dark){
 body{background:#1b1b1b;color:#eee}
@@ -45,6 +46,8 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 <div class="card">% das vezes<b id="taxa">-</b></div>
 </div>
 
+<button id="baixar">Baixar CSV de conferência</button>
+
 <p class="nota" id="nota"></p>
 
 <script>
@@ -52,6 +55,8 @@ var TICKERS = ["ABEV3"];
 var PRAZO = 30;
 var DIA = 86400000;
 var cache = {};
+var ultimas = [];
+var tickerAtual = "";
 
 function carregar(ticker) {
   if (cache[ticker]) return Promise.resolve(cache[ticker]);
@@ -82,6 +87,10 @@ function fmtData(ms) {
          String(d.getUTCMonth() + 1).padStart(2, "0") + "/" + d.getUTCFullYear();
 }
 
+function num(x) {
+  return x.toFixed(2).replace(".", ",");
+}
+
 function calcular() {
   var ticker = document.getElementById("ativo").value;
   var anos = parseInt(document.getElementById("tempo").value, 10);
@@ -94,6 +103,7 @@ function calcular() {
     var ultima = datas[n - 1];
     var inicio = anos === 0 ? datas[0] : ultima - anos * 365.25 * DIA;
     var total = 0, atingiu = 0, j = 0;
+    var linhas = [];
 
     for (var i = 0; i < n; i++) {
       if (datas[i] < inicio) continue;
@@ -101,11 +111,17 @@ function calcular() {
       if (alvo > ultima) break;
       if (j < i) j = i;
       while (j + 1 < n && datas[j + 1] <= alvo) j++;
+      var strike = precos[i] * (1 + pct / 100);
       var ret = (precos[j] / precos[i] - 1) * 100;
+      var bateu = precos[j] >= strike;
       total++;
-      if (ret >= pct) atingiu++;
+      if (bateu) atingiu++;
+      linhas.push([fmtData(datas[i]), num(precos[i]), num(strike), fmtData(alvo),
+                   fmtData(datas[j]), num(precos[j]), num(ret), bateu ? "SIM" : "NAO"]);
     }
 
+    ultimas = linhas;
+    tickerAtual = ticker;
     document.getElementById("total").textContent = total;
     document.getElementById("atingiu").textContent = atingiu;
     document.getElementById("taxa").textContent =
@@ -119,6 +135,21 @@ function calcular() {
   });
 }
 
+function baixar() {
+  if (!ultimas.length) { return; }
+  var cab = ["data_inicio", "fechamento_inicio", "strike", "data_alvo_30d",
+             "data_fechamento_usado", "fechamento_final", "retorno_pct", "atingiu"];
+  var txt = "\uFEFF" + cab.join(";") + "\n" +
+            ultimas.map(function (l) { return l.join(";"); }).join("\n");
+  var blob = new Blob([txt], { type: "text/csv;charset=utf-8" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "conferencia_" + tickerAtual + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 var sel = document.getElementById("ativo");
 TICKERS.forEach(function (t) {
   var o = document.createElement("option");
@@ -129,6 +160,7 @@ TICKERS.forEach(function (t) {
   document.getElementById(id).addEventListener("change", calcular);
 });
 document.getElementById("pct").addEventListener("input", calcular);
+document.getElementById("baixar").addEventListener("click", baixar);
 calcular();
 </script>
 </body>

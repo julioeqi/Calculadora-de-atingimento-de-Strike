@@ -43,9 +43,18 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 <option value="0" selected>Todo o histórico</option>
 </select>
 
-<h2>Backtest de retorno em 30 dias</h2>
+<h2 id="titulo">Backtest de retorno em 30 dias</h2>
 
-<label>Retorno em 30 dias (%)</label>
+<label>Janela (dias corridos)</label>
+<select id="janela">
+<option value="30" selected>30 dias</option>
+<option value="60">60 dias</option>
+<option value="90">90 dias</option>
+<option value="0">Outro</option>
+</select>
+<input id="janelaOutro" type="number" min="1" max="365" step="1" placeholder="Ex.: 45" style="display:none">
+
+<label>Retorno no fim da janela (%)</label>
 <input id="pct" type="number" step="0.5" value="5">
 
 <div class="cards">
@@ -80,7 +89,12 @@ var TICKERS = [ "ABEV3", "ALOS3", "ASAI3", "AURE3", "AXIA3", "AZZA3",
     "SBSP3", "SLCE3", "SUZB3", "TAEE11", "TIMS3", "TOTS3",
     "UGPA3", "USIM5", "VALE3", "VBBR3", "VIVA3", "WEGE3",
     "YDUQ3" ];
-var PRAZO = 30;
+function lerPrazo() {
+  var escolha = document.getElementById("janela").value;
+  var outro = document.getElementById("janelaOutro");
+  outro.style.display = escolha === "0" ? "block" : "none";
+  return escolha === "0" ? parseInt(outro.value, 10) : parseInt(escolha, 10);
+}
 var DIA = 86400000;
 var cache = {};
 var ultimas = [];
@@ -167,6 +181,7 @@ function calcular() {
   var anos = parseInt(document.getElementById("tempo").value, 10);
   var pct = parseFloat(document.getElementById("pct").value);
   var nota = document.getElementById("nota");
+  var prazo = lerPrazo();  
 
   carregar(ticker).then(function (d) {
     var datas = d.datas, precos = d.precos, n = datas.length;
@@ -176,13 +191,15 @@ function calcular() {
     contar(datas, precos, inicio);
 
     if (isNaN(pct)) { nota.textContent = "Digite um percentual."; return; }
+      if (isNaN(prazo) || prazo < 1) { nota.textContent = "Digite uma janela de 1 dia ou mais."; return; }
+document.getElementById("titulo").textContent = "Backtest de retorno em " + prazo + " dias";
 
     var total = 0, atingiu = 0, j = 0;
     var linhas = [];
 
     for (var i = 0; i < n; i++) {
       if (datas[i] < inicio) continue;
-      var alvo = datas[i] + PRAZO * DIA;
+      var alvo = datas[i] + prazo * DIA;
       if (alvo > ultima) break;
       if (j < i) j = i;
       while (j + 1 < n && datas[j + 1] <= alvo) j++;
@@ -202,7 +219,7 @@ function calcular() {
     document.getElementById("taxa").textContent =
       total ? (atingiu / total * 100).toFixed(1) + "%" : "-";
     nota.textContent = "Dados de " + fmtData(datas[0]) + " até " + fmtData(ultima) +
-      ". Cada janela do backtest compara o fechamento do dia com o de " + PRAZO +
+      ". Cada janela do backtest compara o fechamento do dia com o de " + prazo +
       " dias corridos depois (se não houver pregão, usa o último fechamento anterior) " +
       "e conta quando o retorno final é maior ou igual a " + pct + "%. " +
       "A contagem por preço usa o fechamento de cada pregão do período.";
@@ -213,7 +230,7 @@ function calcular() {
 
 function baixar() {
   if (!ultimas.length) { return; }
-  var cab = ["data_inicio", "fechamento_inicio", "strike", "data_alvo_30d",
+  var cab = ["data_inicio", "fechamento_inicio", "strike", "data_alvo",
              "data_fechamento_usado", "fechamento_final", "retorno_pct", "atingiu"];
   var txt = "\uFEFF" + cab.join(";") + "\n" +
             ultimas.map(function (l) { return l.join(";"); }).join("\n");
@@ -232,10 +249,10 @@ TICKERS.forEach(function (t) {
   o.value = t; o.textContent = t;
   sel.appendChild(o);
 });
-["ativo", "tempo"].forEach(function (id) {
+["ativo", "tempo", "janela"].forEach(function (id) {
   document.getElementById(id).addEventListener("change", calcular);
 });
-["pct", "acima", "abaixo"].forEach(function (id) {
+["pct", "acima", "abaixo", "janelaOutro"].forEach(function (id) {
   document.getElementById(id).addEventListener("input", calcular);
 });
 document.getElementById("baixar").addEventListener("click", baixar);

@@ -25,7 +25,7 @@ button{margin-top:18px;padding:12px;font-size:16px;width:100%;cursor:pointer}
 table{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
 th,td{padding:8px 6px;text-align:right;border-bottom:1px solid #ccc}
 th:first-child,td:first-child{text-align:left}
-tr.melhor td{font-weight:bold}
+tr.melhor td{font-weight:bold;color:#2e9e5b}
 @media (prefers-color-scheme:dark){
 body{background:#1b1b1b;color:#eee}
 h2{border-top-color:#444}
@@ -419,9 +419,9 @@ function comparar() {
     });
   })).then(function (res) {
     if (meu !== tokenComp) return;
-    var melhor = -1;
+    var melhor = Infinity;
     res.forEach(function (r) {
-      if (!r.erro && r.taxa > melhor) melhor = r.taxa;
+      if (!r.erro && r.taxa > menor) menor = r.taxa;
     });
     var h = '<table><tr><th>Ativo</th><th>Janelas</th><th>Atingiu</th><th>% das vezes</th></tr>';
     res.forEach(function (r) {
@@ -429,12 +429,12 @@ function comparar() {
         h += '<tr><td>' + r.ativo + '</td><td colspan="3">sem dados</td></tr>';
         return;
       }
-      var dest = (res.length > 1 && r.total && r.taxa === melhor) ? ' class="melhor"' : '';
+      var dest = (res.length > 1 && r.total && r.taxa === menor) ? ' class="melhor"' : '';
       h += '<tr' + dest + '><td>' + r.ativo + '</td><td>' + r.total + '</td><td>' + r.atingiu +
            '</td><td>' + (r.total ? r.taxa.toFixed(1) + '%' : '-') + '</td></tr>';
     });
     h += '</table><p class="nota">Janela de ' + prazo + ' dias, retorno de ' + f2(pct) +
-         '% ou mais, no período selecionado. Em negrito, o ativo com maior frequência.</p>';
+         '% ou mais, no período selecionado. Em verde e negrito, o ativo com menor frequência.</p>';
     box.innerHTML = h;
   });
 }

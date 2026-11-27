@@ -247,7 +247,7 @@ function desenharHistograma(rets, pct, prazo) {
   el.innerHTML = s +
     '<p class="nota">Retorno em ' + prazo + ' dias. Cada barra cobre ' + f2(passo) +
     ' ponto(s) percentual(is) e mostra quantas janelas caíram naquela faixa. ' +
-    'A linha tracejada marca ' + f2(pct) + '%; as barras verdes são as janelas que atingiram esse retorno.</p>';
+    'A linha tracejada marca ' + f2(pct) + '%; as barras verdes são as janelas em que não seria exercido e as vermelhar, quando exercido.</p>';
 }
 
 function calcular() {

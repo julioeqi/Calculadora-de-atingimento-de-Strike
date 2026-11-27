@@ -18,6 +18,10 @@ select,input{width:100%;padding:10px;font-size:16px;margin-top:4px;box-sizing:bo
 .res span{display:block;font-size:13px;color:#555;margin-top:4px}
 button{margin-top:18px;padding:12px;font-size:16px;width:100%;cursor:pointer}
 .nota{font-size:13px;color:#555;margin-top:16px;line-height:1.5}
+.hb{fill:#9aa5b1}
+.hb.ok{fill:#2e9e5b}
+#histo svg{margin-top:20px}
+#histo text{fill:currentColor;font-size:11px}
 @media (prefers-color-scheme:dark){
 body{background:#1b1b1b;color:#eee}
 h2{border-top-color:#444}
@@ -63,6 +67,8 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 <div class="card">% das vezes<b id="taxa">-</b></div>
 </div>
 
+<div id="histo"></div>
+
 <button id="baixar">Baixar CSV de conferência</button>
 
 <h2>Contagem de dias por preço de fechamento</h2>
@@ -89,16 +95,17 @@ var TICKERS = [ "ABEV3", "ALOS3", "ASAI3", "AURE3", "AXIA3", "AZZA3",
     "SBSP3", "SLCE3", "SUZB3", "TAEE11", "TIMS3", "TOTS3",
     "UGPA3", "USIM5", "VALE3", "VBBR3", "VIVA3", "WEGE3",
     "YDUQ3" ];
+var DIA = 86400000;
+var cache = {};
+var ultimas = [];
+var tickerAtual = "";
+
 function lerPrazo() {
   var escolha = document.getElementById("janela").value;
   var outro = document.getElementById("janelaOutro");
   outro.style.display = escolha === "0" ? "block" : "none";
   return escolha === "0" ? parseInt(outro.value, 10) : parseInt(escolha, 10);
 }
-var DIA = 86400000;
-var cache = {};
-var ultimas = [];
-var tickerAtual = "";
 
 function carregar(ticker) {
   if (cache[ticker]) return Promise.resolve(cache[ticker]);
@@ -131,6 +138,10 @@ function fmtData(ms) {
 
 function num(x) {
   return x.toFixed(2).replace(".", ",");
+}
+
+function f2(x) {
+  return String(Math.round(x * 100) / 100).replace(".", ",");
 }
 
 function lerValor(id) {
@@ -176,12 +187,75 @@ function contar(datas, precos, inicio) {
   }
 }
 
+function desenharHistograma(rets, pct, prazo) {
+  var el = document.getElementById("histo");
+  if (!rets.length) { el.innerHTML = ""; return; }
+
+  var mn = rets[0], mx = rets[0], i, k;
+  for (i = 1; i < rets.length; i++) {
+    if (rets[i] < mn) mn = rets[i];
+    if (rets[i] > mx) mx = rets[i];
+  }
+  var lo = Math.min(mn, pct), hi = Math.max(mx, pct);
+
+  var passos = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100];
+  var passo = passos[passos.length - 1];
+  for (k = 0; k < passos.length; k++) {
+    if (passos[k] >= (hi - lo) / 24) { passo = passos[k]; break; }
+  }
+
+  var ini = pct + Math.floor((lo - pct) / passo + 1e-9) * passo;
+  var nb = Math.floor((hi - ini) / passo + 1e-9) + 1;
+  var cont = [];
+  for (i = 0; i < nb; i++) cont.push(0);
+  for (i = 0; i < rets.length; i++) {
+    cont[Math.floor((rets[i] - ini) / passo + 1e-9)]++;
+  }
+  var maxC = Math.max.apply(null, cont);
+
+  var W = 640, H = 260, ml = 40, mr = 10, mt = 14, mb = 34;
+  var iw = W - ml - mr, ih = H - mt - mb, bw = iw / nb;
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Histograma dos retornos">';
+
+  for (i = 0; i < nb; i++) {
+    var h = cont[i] / maxC * ih;
+    var x = ml + i * bw;
+    var borda = ini + i * passo;
+    var ok = borda >= pct - 1e-9;
+    s += '<rect class="hb' + (ok ? ' ok' : '') + '" x="' + x.toFixed(1) +
+         '" y="' + (mt + ih - h).toFixed(1) + '" width="' + Math.max(bw - 1, 1).toFixed(1) +
+         '" height="' + h.toFixed(1) + '"><title>' + f2(borda) + '% a ' + f2(borda + passo) +
+         '%: ' + cont[i] + ' janelas</title></rect>';
+  }
+
+  s += '<line x1="' + ml + '" y1="' + (mt + ih) + '" x2="' + (W - mr) + '" y2="' + (mt + ih) +
+       '" stroke="currentColor" stroke-width="1"/>';
+  s += '<text x="' + (ml - 6) + '" y="' + (mt + ih + 4) + '" text-anchor="end">0</text>';
+  s += '<text x="' + (ml - 6) + '" y="' + (mt + 8) + '" text-anchor="end">' + maxC + '</text>';
+
+  var cada = Math.ceil(nb / 8);
+  for (i = 0; i <= nb; i += cada) {
+    s += '<text x="' + (ml + i * bw).toFixed(1) + '" y="' + (mt + ih + 16) +
+         '" text-anchor="middle">' + f2(ini + i * passo) + '%</text>';
+  }
+
+  var xp = ml + (pct - ini) / passo * bw;
+  s += '<line x1="' + xp.toFixed(1) + '" y1="' + mt + '" x2="' + xp.toFixed(1) + '" y2="' + (mt + ih) +
+       '" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5,4"/>';
+  s += '</svg>';
+
+  el.innerHTML = s +
+    '<p class="nota">Retorno em ' + prazo + ' dias. Cada barra cobre ' + f2(passo) +
+    ' ponto(s) percentual(is) e mostra quantas janelas caíram naquela faixa. ' +
+    'A linha tracejada marca ' + f2(pct) + '%; as barras verdes são as janelas que atingiram esse retorno.</p>';
+}
+
 function calcular() {
   var ticker = document.getElementById("ativo").value;
   var anos = parseInt(document.getElementById("tempo").value, 10);
   var pct = parseFloat(document.getElementById("pct").value);
   var nota = document.getElementById("nota");
-  var prazo = lerPrazo();  
+  var prazo = lerPrazo();
 
   carregar(ticker).then(function (d) {
     var datas = d.datas, precos = d.precos, n = datas.length;
@@ -191,11 +265,12 @@ function calcular() {
     contar(datas, precos, inicio);
 
     if (isNaN(pct)) { nota.textContent = "Digite um percentual."; return; }
-      if (isNaN(prazo) || prazo < 1) { nota.textContent = "Digite uma janela de 1 dia ou mais."; return; }
-document.getElementById("titulo").textContent = "Backtest de retorno em " + prazo + " dias";
+    if (isNaN(prazo) || prazo < 1) { nota.textContent = "Digite uma janela de 1 dia ou mais."; return; }
+    document.getElementById("titulo").textContent = "Backtest de retorno em " + prazo + " dias";
 
     var total = 0, atingiu = 0, j = 0;
     var linhas = [];
+    var rets = [];
 
     for (var i = 0; i < n; i++) {
       if (datas[i] < inicio) continue;
@@ -205,6 +280,7 @@ document.getElementById("titulo").textContent = "Backtest de retorno em " + praz
       while (j + 1 < n && datas[j + 1] <= alvo) j++;
       var strike = precos[i] * (1 + pct / 100);
       var ret = (precos[j] / precos[i] - 1) * 100;
+      rets.push(ret);
       var bateu = precos[j] >= strike;
       total++;
       if (bateu) atingiu++;
@@ -218,6 +294,7 @@ document.getElementById("titulo").textContent = "Backtest de retorno em " + praz
     document.getElementById("atingiu").textContent = atingiu;
     document.getElementById("taxa").textContent =
       total ? (atingiu / total * 100).toFixed(1) + "%" : "-";
+    desenharHistograma(rets, pct, prazo);
     nota.textContent = "Dados de " + fmtData(datas[0]) + " até " + fmtData(ultima) +
       ". Cada janela do backtest compara o fechamento do dia com o de " + prazo +
       " dias corridos depois (se não houver pregão, usa o último fechamento anterior) " +

@@ -421,7 +421,7 @@ function comparar() {
     if (meu !== tokenComp) return;
     var menor = Infinity;
     res.forEach(function (r) {
-      if (!r.erro && r.taxa > menor) menor = r.taxa;
+      if (!r.erro && r.total && r.taxa < menor) menor = r.taxa;
     });
     var h = '<table><tr><th>Ativo</th><th>Janelas</th><th>Atingiu</th><th>% das vezes</th></tr>';
     res.forEach(function (r) {

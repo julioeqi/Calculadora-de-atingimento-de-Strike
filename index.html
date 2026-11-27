@@ -22,6 +22,10 @@ button{margin-top:18px;padding:12px;font-size:16px;width:100%;cursor:pointer}
 .hb.ok{fill:#d64545}
 #histo svg{margin-top:20px}
 #histo text{fill:currentColor;font-size:11px}
+table{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
+th,td{padding:8px 6px;text-align:right;border-bottom:1px solid #ccc}
+th:first-child,td:first-child{text-align:left}
+tr.melhor td{font-weight:bold}
 @media (prefers-color-scheme:dark){
 body{background:#1b1b1b;color:#eee}
 h2{border-top-color:#444}
@@ -29,6 +33,7 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 .card,.res{background:#2a2a2a}
 .res span{color:#aaa}
 .nota{color:#aaa}
+th,td{border-bottom-color:#444}
 }
 </style>
 </head>
@@ -71,6 +76,11 @@ select,input{background:#2a2a2a;color:#eee;border:1px solid #555}
 
 <button id="baixar">Baixar CSV de conferência</button>
 
+<h2>Comparação de ativos</h2>
+<p class="nota" style="margin-top:0">Escolha os ativos abaixo. Cada vez que você escolhe um, abre um novo seletor. Usa o período, a janela e o retorno (%) escolhidos acima. Para tirar um ativo, volte o seletor dele para "Selecione um ativo...".</p>
+<div id="seletoresComp"></div>
+<div id="tabelaComp"></div>
+
 <h2>Contagem de dias por preço de fechamento</h2>
 
 <label>Acima de (R$): dias em que o fechamento ficou acima</label>
@@ -99,6 +109,7 @@ var DIA = 86400000;
 var cache = {};
 var ultimas = [];
 var tickerAtual = "";
+var tokenComp = 0;
 
 function lerPrazo() {
   var escolha = document.getElementById("janela").value;
@@ -247,7 +258,7 @@ function desenharHistograma(rets, pct, prazo) {
   el.innerHTML = s +
     '<p class="nota">Retorno em ' + prazo + ' dias. Cada barra cobre ' + f2(passo) +
     ' ponto(s) percentual(is) e mostra quantas janelas caíram naquela faixa. ' +
-    'A linha tracejada marca ' + f2(pct) + '%; as barras verdes são as janelas em que não seria exercido e as vermelhar, quando exercido.</p>';
+    'A linha tracejada marca ' + f2(pct) + '%; as barras vermelhas são as janelas que atingiram esse retorno e as verdes, as que não atingiram.</p>';
 }
 
 function calcular() {
@@ -305,6 +316,131 @@ function calcular() {
   });
 }
 
+/* ---------- Comparação de ativos ---------- */
+
+function contarJanelas(d, inicio, pct, prazo) {
+  var datas = d.datas, precos = d.precos, n = datas.length, ultima = datas[n - 1];
+  var total = 0, atingiu = 0, j = 0;
+  for (var i = 0; i < n; i++) {
+    if (datas[i] < inicio) continue;
+    var alvo = datas[i] + prazo * DIA;
+    if (alvo > ultima) break;
+    if (j < i) j = i;
+    while (j + 1 < n && datas[j + 1] <= alvo) j++;
+    total++;
+    if (precos[j] >= precos[i] * (1 + pct / 100)) atingiu++;
+  }
+  return { total: total, atingiu: atingiu };
+}
+
+function adicionarBloco() {
+  var div = document.createElement("div");
+  var lab = document.createElement("label");
+  var s = document.createElement("select");
+  var o0 = document.createElement("option");
+  o0.value = "";
+  o0.textContent = "Selecione um ativo...";
+  s.appendChild(o0);
+  TICKERS.forEach(function (t) {
+    var o = document.createElement("option");
+    o.value = t;
+    o.textContent = t;
+    s.appendChild(o);
+  });
+  s.addEventListener("change", atualizarSeletores);
+  div.appendChild(lab);
+  div.appendChild(s);
+  document.getElementById("seletoresComp").appendChild(div);
+}
+
+function atualizarSeletores() {
+  var box = document.getElementById("seletoresComp");
+  var blocos = Array.prototype.slice.call(box.children);
+
+  blocos.forEach(function (b, i) {
+    if (i < blocos.length - 1 && b.querySelector("select").value === "") {
+      box.removeChild(b);
+    }
+  });
+
+  blocos = Array.prototype.slice.call(box.children);
+  if (!blocos.length || blocos[blocos.length - 1].querySelector("select").value !== "") {
+    adicionarBloco();
+    blocos = Array.prototype.slice.call(box.children);
+  }
+
+  var escolhidos = [];
+  blocos.forEach(function (b) {
+    var v = b.querySelector("select").value;
+    if (v) escolhidos.push(v);
+  });
+
+  blocos.forEach(function (b, i) {
+    b.querySelector("label").textContent = "Ativo " + (i + 1);
+    var s = b.querySelector("select");
+    Array.prototype.forEach.call(s.options, function (o) {
+      o.disabled = o.value !== "" && o.value !== s.value && escolhidos.indexOf(o.value) !== -1;
+    });
+  });
+
+  comparar();
+}
+
+function comparar() {
+  var box = document.getElementById("tabelaComp");
+  var anos = parseInt(document.getElementById("tempo").value, 10);
+  var pct = parseFloat(document.getElementById("pct").value);
+  var prazo = lerPrazo();
+  var escolhidos = [];
+  Array.prototype.forEach.call(document.querySelectorAll("#seletoresComp select"), function (s) {
+    if (s.value) escolhidos.push(s.value);
+  });
+
+  var meu = ++tokenComp;
+
+  if (!escolhidos.length) {
+    box.innerHTML = '<p class="nota">Escolha pelo menos um ativo para comparar.</p>';
+    return;
+  }
+  if (isNaN(pct) || isNaN(prazo) || prazo < 1) {
+    box.innerHTML = '<p class="nota">Preencha o retorno (%) e a janela acima.</p>';
+    return;
+  }
+
+  Promise.all(escolhidos.map(function (t) {
+    return carregar(t).then(function (d) {
+      var ultima = d.datas[d.datas.length - 1];
+      var inicio = anos === 0 ? d.datas[0] : ultima - anos * 365.25 * DIA;
+      var r = contarJanelas(d, inicio, pct, prazo);
+      return { ativo: t, total: r.total, atingiu: r.atingiu,
+               taxa: r.total ? r.atingiu / r.total * 100 : -1 };
+    }).catch(function () {
+      return { ativo: t, erro: true };
+    });
+  })).then(function (res) {
+    if (meu !== tokenComp) return;
+    var melhor = -1;
+    res.forEach(function (r) {
+      if (!r.erro && r.taxa > melhor) melhor = r.taxa;
+    });
+    var h = '<table><tr><th>Ativo</th><th>Janelas</th><th>Atingiu</th><th>% das vezes</th></tr>';
+    res.forEach(function (r) {
+      if (r.erro) {
+        h += '<tr><td>' + r.ativo + '</td><td colspan="3">sem dados</td></tr>';
+        return;
+      }
+      var dest = (res.length > 1 && r.total && r.taxa === melhor) ? ' class="melhor"' : '';
+      h += '<tr' + dest + '><td>' + r.ativo + '</td><td>' + r.total + '</td><td>' + r.atingiu +
+           '</td><td>' + (r.total ? r.taxa.toFixed(1) + '%' : '-') + '</td></tr>';
+    });
+    h += '</table><p class="nota">Janela de ' + prazo + ' dias, retorno de ' + f2(pct) +
+         '% ou mais, no período selecionado. Em negrito, o ativo com maior frequência.</p>';
+    box.innerHTML = h;
+  });
+}
+
+/* ---------- CSV ---------- */
+
 function baixar() {
   if (!ultimas.length) { return; }
   var cab = ["data_inicio", "fechamento_inicio", "strike", "data_alvo",
@@ -320,6 +456,8 @@ function baixar() {
   document.body.removeChild(a);
 }
 
+/* ---------- Inicialização ---------- */
+
 var sel = document.getElementById("ativo");
 TICKERS.forEach(function (t) {
   var o = document.createElement("option");
@@ -332,7 +470,14 @@ TICKERS.forEach(function (t) {
 ["pct", "acima", "abaixo", "janelaOutro"].forEach(function (id) {
   document.getElementById(id).addEventListener("input", calcular);
 });
+["tempo", "janela"].forEach(function (id) {
+  document.getElementById(id).addEventListener("change", comparar);
+});
+["pct", "janelaOutro"].forEach(function (id) {
+  document.getElementById(id).addEventListener("input", comparar);
+});
 document.getElementById("baixar").addEventListener("click", baixar);
+atualizarSeletores();
 calcular();
 </script>
 </body>

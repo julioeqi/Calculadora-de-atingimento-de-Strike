@@ -419,7 +419,7 @@ function comparar() {
     });
   })).then(function (res) {
     if (meu !== tokenComp) return;
-    var melhor = Infinity;
+    var menor = Infinity;
     res.forEach(function (r) {
       if (!r.erro && r.taxa > menor) menor = r.taxa;
     });

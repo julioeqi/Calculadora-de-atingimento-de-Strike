@@ -13,7 +13,7 @@ TICKERS = [ "ABEV3", "ALOS3", "ASAI3", "AURE3", "AXIA3", "AZZA3",
     "SBSP3", "SLCE3", "SUZB3", "TAEE11", "TIMS3", "TOTS3",
     "UGPA3", "USIM5", "VALE3", "VBBR3", "VIVA3", "WEGE3",
     "YDUQ3"]
-INICIO = "2010-01-01"
+INICIO = "2000-01-01"
 
 os.makedirs("data", exist_ok=True)
 
